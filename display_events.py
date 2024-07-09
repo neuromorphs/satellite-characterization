@@ -29,8 +29,3 @@ def display_recordings(sample, satellite_only=False, frame_rate=10, accumulation
                 cv2.waitKey(1000//frame_rate)
                 frame.fill(0)
                 time_count = event[0]
-
-dataset = AstrositeDataset('../dataset/recordings/')
-sample = dataset[0]
-
-display_recordings(sample, True)

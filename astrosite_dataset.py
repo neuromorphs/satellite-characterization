@@ -2,18 +2,40 @@ import os
 import numpy as np
 import json
 import event_stream
+import glob
 
 
 class AstrositeDataset:
-    def __init__(self, recordings_path):
+    def __init__(self, recordings_path, split = "all"):
         self.recordings_path = recordings_path
-        self.recording_files = [
-            os.path.join(recordings_path, folder) for folder in os.listdir(recordings_path)
-            if os.path.isdir(os.path.join(recordings_path, folder))
-        ]
+        self.split = split
+        if split != "all" :
+            self.recording_files = self.get_split()
+        else :
+            self.recording_files = [
+                os.path.join(recordings_path, folder) for folder in os.listdir(recordings_path)
+                if os.path.isdir(os.path.join(recordings_path, folder))
+            ]
     
     def __len__(self):
         return len(self.recording_files)
+    
+    def get_split(self):
+        files = [f for f in glob.glob(self.recordings_path + "/**/recording.json")]
+        recording_files = []
+        files_per_satellites = {}
+        for file in files:
+            json_load = open(file)
+            dict_file = json.load(json_load)
+            satellite_id = dict_file['object']['id']
+            if satellite_id in self.split:
+                recording_files.append("/".join(file.split("/")[:-1]))
+                if not(dict_file['object']['id'] in files_per_satellites):
+                    files_per_satellites[satellite_id] = {"occurences" : 1 , "locations":[file]}
+                else:
+                    files_per_satellites[satellite_id]["locations"].append(file)
+                    files_per_satellites[satellite_id]["occurences"]+=1
+        return recording_files
     
     def __getitem__(self, idx):
         if idx >= len(self.recording_files):
