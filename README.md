@@ -21,3 +21,11 @@ mount -t cifs //192.168.167.11/Telluride24 /mnt -o username=Neuromorph,password=
 You can go to file explorer bar and enter this address:
 \\192.168.167.11\Telluride24
 
+## Visualise recordings
+Run the plot_multiple.ipynb notebook to generate an event file that contains 9 recordings aligned in a grid.
+
+Then you can use the render.py script to render a video from the event file. It uses [command line tools](https://github.com/neuromorphic-paris/command_line_tools/tree/master) under the hood and you need to point the `clt_path` to the `command_line_tools/build/release` folder.
+
+```
+python render.py --input ./merged_events.es --clt_path ~/Development/command_line_tools/build/release -o ./satellite_video.mp4 --tau 5000000
+```
