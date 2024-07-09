@@ -3,41 +3,48 @@ import json
 import math
 import matplotlib.pyplot as plt
 
-json_load = open("./files_per_satellites.json")
+json_load = open("../dataset/files_per_satellites.json")
 dict_file = json.load(json_load)
 satellite_files = dict_file[list(dict_file.keys())[0]]["locations"]
 all_events = []
 for filename in satellite_files:
     print(filename)
     npy_name = filename.split('/')[:-1]
-    npy_name = "/".join(npy_name) + "/labelled_events.npy"
+    npy_name = "../dataset/" + "/".join(npy_name) + "/labelled_events.npy"
     events = np.load(npy_name)
     flip_events = list(zip(*events))
     max_ts = flip_events[0][-1]
     all_events.append(events)
 
-figure, axis = plt.subplots(5, 4) 
+#figure, axis = plt.subplots(5, 4) 
 
 event_activity = 0.0
 previous_t = 0  # µs
 tau = 100.0     # µs
 
-ts = []
-
-print(len(events))
-for k in range(len(all_events)):
+print(len(all_events))
+for k in range(1): #len(all_events)):
     activity = []
-    for chunk in all_events[k]:
-        t, x, y, p,i = chunk
-        if i == -1 :
-            delta_t = t - previous_t
-            event_activity *= math.exp(-float(delta_t) / tau)  # Leak
-            event_activity += 1                                # Integrate
-            previous_t = t
+    ts = []
+    event_counter = 0
+    event_activity = 0.0
+    for t in range(all_events[k][0][0], all_events[k][-1][0]):
+        event_activity *= math.exp(-1 / tau)
+        if t == all_events[k][event_counter][0] :
+            print(event_counter)
+            event_activity += 1
+            event_counter +=1
             ts.append(t)
             activity.append(event_activity)
-    print(ts[-1]-ts[0])
-    print(k)
+    plt.plot(activity)
+    plt.specgram(activity)
+    plt.show()
+    #print(np.mean(activity))
+    print(len(activity))
+    print(len(activity)/(ts[-1]-ts[0]))
+    print("Time ratio: ", (ts[-1]-ts[0])/(all_events[k][-1][0]-all_events[k][0][0]))
+    #print(k)
+    #axis[k//4, k%4].plot(activity)
     axis[k//4, k%4].specgram(activity)
     #axis[k//4, k%4].xlabel("Frequencies")
     #axis[k//4, k%4].ylabel("Activity")
