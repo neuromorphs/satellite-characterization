@@ -1,6 +1,7 @@
 data
 *.mp4
 *.es
+results
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

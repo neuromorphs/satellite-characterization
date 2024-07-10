@@ -21,6 +21,9 @@ mount -t cifs //192.168.167.11/Telluride24 /mnt -o username=Neuromorph,password=
 You can go to file explorer bar and enter this address:
 \\192.168.167.11\Telluride24
 
+### Some dataset stats
+![](dataset_statistics.png)
+
 ## Visualise recordings
 Run the plot_multiple.ipynb notebook to generate an event file that contains 9 recordings aligned in a grid.
 
