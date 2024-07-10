@@ -17,8 +17,9 @@ class AstrositeDataset:
         min_sat_events (int, optional): The minimum number of events with label -1 that a recording
             must have to be included in the dataset. Defaults to 1000.
     """
+    sensor_size = (1280, 720, 2)
 
-    def __init__(self, recordings_path, split="all", min_sat_events=1000):
+    def __init__(self, recordings_path, split="all", min_sat_events=1000, transform=None):
         self.recordings_path = recordings_path
         self.split = split
         self.min_sat_events = min_sat_events
@@ -75,9 +76,23 @@ class AstrositeDataset:
         with open(recording_json_path, "r") as f:
             recording_data = json.load(f)
 
+        labelled_events = labelled_events.view(dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
         return {
             "events": events,
             "labelled_events": labelled_events,
             "recording_data": recording_data,
             "target_id": recording_data["object"]["id"],
         }
+
+
+class ClassificationAstrositeDataset(AstrositeDataset):
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+        return sample["events"], sample['target_id']
+
+
+class TrackingAstrositeDataset(AstrositeDataset):
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+        sat_events = sample['labelled_events']
+        return sat_events[sat_events['label'] == -1], sample['target_id']
