@@ -14,11 +14,14 @@ class AstrositeDataset:
         split (str, optional): The split to use. Can be either 'all' or a list of satellite IDs.
             If 'all', all recordings are used. If a list of satellite IDs, only recordings from
             those satellites are used. Defaults to 'all'.
+        min_sat_events (int, optional): The minimum number of events with label -1 that a recording
+            must have to be included in the dataset. Defaults to 1000.
     """
 
-    def __init__(self, recordings_path, split="all"):
+    def __init__(self, recordings_path, split="all", min_sat_events=1000):
         self.recordings_path = recordings_path
         self.split = split
+        self.min_sat_events = min_sat_events
         if split != "all":
             self.recording_files = self.get_split()
         else:
@@ -42,7 +45,7 @@ class AstrositeDataset:
             if satellite_id in self.split:
                 file_location = "/".join(file.split("/")[:-1])
                 labelled_events = np.load(file_location+"/labelled_events.npy")
-                if min(list(set(labelled_events['label']))) >= -1 and len(labelled_events[labelled_events['label'] == -1]) >= 1000 :
+                if min(list(set(labelled_events['label']))) >= -1 and len(labelled_events[labelled_events['label'] == -1]) >= self.min_sat_events :
                     recording_files.append(file_location)
                 if not(dict_file['object']['id'] in files_per_satellites):
                     files_per_satellites[satellite_id] = {"occurences" : 1 , "locations":[file]}
