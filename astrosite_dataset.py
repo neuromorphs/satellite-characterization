@@ -29,7 +29,10 @@ class AstrositeDataset:
             dict_file = json.load(json_load)
             satellite_id = dict_file['object']['id']
             if satellite_id in self.split:
-                recording_files.append("/".join(file.split("/")[:-1]))
+                file_location = "/".join(file.split("/")[:-1])
+                labelled_events = np.load(file_location+"/labelled_events.npy")
+                if min(list(set(labelled_events['label']))) >= -1 and len(labelled_events[labelled_events['label'] == -1]) >= 1000 :
+                    recording_files.append(file_location)
                 if not(dict_file['object']['id'] in files_per_satellites):
                     files_per_satellites[satellite_id] = {"occurences" : 1 , "locations":[file]}
                 else:
