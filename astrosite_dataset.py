@@ -3,6 +3,11 @@ import numpy as np
 import json
 import event_stream
 import glob
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, Dataset
+from tonic.slicers import SliceByTime
+from tonic import SlicedDataset, transforms
 
 
 class AstrositeDataset:
@@ -95,4 +100,37 @@ class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
         sat_events = sample['labelled_events']
-        return sat_events[sat_events['label'] == -1], sample['target_id']
+        last_timestamp = sample['events'][-1][0]
+        first_timestamp = sample['events'][0][0]
+        first_event = np.array([(first_timestamp,0,0,True,0)],dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
+        last_event = np.array([(last_timestamp,0,0,True,0)],dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
+        completed_labelled_datasets=(np.concatenate((first_event,sat_events[sat_events['label']==-1],last_event)))
+        return completed_labelled_datasets, sample['target_id']
+    
+class MergedDataset(Dataset):
+    def __init__(self, dataset1, dataset2):
+        assert len(dataset1) == len(dataset2)
+        self.dataset1 = dataset1
+        self.dataset2 = dataset2
+        
+    def __len__(self):
+        return len(self.dataset1)
+    
+    def __getitem__(self, idx):
+        assert self.dataset1[idx][1] == self.dataset2[idx][1]
+        return torch.tensor(self.dataset1[idx][0]), torch.tensor(self.dataset2[idx][0]), self.dataset1[idx][1]
+    
+def build_merge_dataset(dataset_path, split=['all'],metadata_paths =['metadata/1','metadata/2'] ) :
+    dataset1 = ClassificationAstrositeDataset(dataset_path, split=split)
+    dataset2 = TrackingAstrositeDataset(dataset_path, split=split)
+
+    assert len(dataset1) == len(dataset2)
+
+    slicer = SliceByTime(time_window=1e6, include_incomplete=False)
+    frame_transform = transforms.ToFrame(sensor_size=dataset1.sensor_size, time_window=1e5, include_incomplete=True)
+
+    sliced_dataset1 = SlicedDataset(dataset1, slicer=slicer, metadata_path=metadata_paths[0], transform=frame_transform)
+    sliced_dataset2 = SlicedDataset(dataset2, slicer=slicer, metadata_path=metadata_paths[1], transform=frame_transform)
+
+    return MergedDataset(sliced_dataset1, sliced_dataset2)
+    
