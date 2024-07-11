@@ -5,7 +5,9 @@ import event_stream
 import glob
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
+from tonic.slicers import SliceByTime
+from tonic import SlicedDataset, transforms
 
 
 class AstrositeDataset:
@@ -105,7 +107,7 @@ class TrackingAstrositeDataset(AstrositeDataset):
         completed_labelled_datasets=(np.concatenate((first_event,sat_events[sat_events['label']==-1],last_event)))
         return completed_labelled_datasets, sample['target_id']
     
-class MergedDataset(DataLoader):
+class MergedDataset(Dataset):
     def __init__(self, dataset1, dataset2):
         assert len(dataset1) == len(dataset2)
         self.dataset1 = dataset1
@@ -116,5 +118,19 @@ class MergedDataset(DataLoader):
     
     def __getitem__(self, idx):
         assert self.dataset1[idx][1] == self.dataset2[idx][1]
-        return self.dataset1[idx][0], self.dataset2[idx][0], self.dataset1[idx][1]
+        return torch.tensor(self.dataset1[idx][0]), torch.tensor(self.dataset2[idx][0]), self.dataset1[idx][1]
+    
+def build_merge_dataset(dataset_path, split=['all'],metadata_paths =['metadata/1','metadata/2'] ) :
+    dataset1 = ClassificationAstrositeDataset(dataset_path, split=split)
+    dataset2 = TrackingAstrositeDataset(dataset_path, split=split)
+
+    assert len(dataset1) == len(dataset2)
+
+    slicer = SliceByTime(time_window=1e6, include_incomplete=False)
+    frame_transform = transforms.ToFrame(sensor_size=dataset1.sensor_size, time_window=1e5, include_incomplete=True)
+
+    sliced_dataset1 = SlicedDataset(dataset1, slicer=slicer, metadata_path=metadata_paths[0], transform=frame_transform)
+    sliced_dataset2 = SlicedDataset(dataset2, slicer=slicer, metadata_path=metadata_paths[1], transform=frame_transform)
+
+    return MergedDataset(sliced_dataset1, sliced_dataset2)
     
