@@ -47,7 +47,6 @@ class AstrositeDataset:
         for file in files:
             with open(file, "r") as f:
                 dict_file = json.load(f)
-            f.close()
             satellite_id = dict_file["object"]["id"]
             if satellite_id in self.split:
                 file_location = "/".join(file.split("/")[:-1])
@@ -67,17 +66,15 @@ class AstrositeDataset:
 
         recording_path = self.recording_files[idx]
 
-        # Placeholder function to load events.es file
-        def load_events_es(file_path):
-            decoder = event_stream.Decoder(file_path)
-            chunks = [chunk for chunk in decoder]
-            return np.concatenate(chunks)
-
         events_es_path = os.path.join(recording_path, "events.es")
         labelled_events_path = os.path.join(recording_path, "labelled_events.npy")
         recording_json_path = os.path.join(recording_path, "recording.json")
 
-        events = load_events_es(events_es_path)
+        # load events.es file
+        with event_stream.Decoder(events_es_path) as decoder:
+            chunks = [chunk for chunk in decoder]
+            events = np.concatenate(chunks)
+
         with open(recording_json_path, "r") as f:
             recording_data = json.load(f)
 
@@ -88,8 +85,7 @@ class AstrositeDataset:
             "events": events,
             "labelled_events": labelled_events,
             "recording_data": recording_data,
-            "target_id": recording_data["object"]["id"],
-        }
+            "target_id": recording_data["object"]["id"]}
 
 
 class ClassificationAstrositeDataset(AstrositeDataset):
@@ -114,9 +110,9 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
 
-        if self.is_satellite[index]:
-            return sample["events"], 1
         sat_events = sample['labelled_events']
+        if self.is_satellite[index]:
+            return sat_events, 1
         mask = sat_events["label"] < 0
 
         return sat_events[~mask], 0
