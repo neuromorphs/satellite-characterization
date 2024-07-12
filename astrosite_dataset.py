@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import math
 import json
 import event_stream
 import glob
@@ -8,6 +9,8 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 from tonic.slicers import SliceByTime
 from tonic import SlicedDataset, transforms
+import matplotlib.pyplot as plt
+#from events_analysis import events_to_spectrogram
 
 
 class AstrositeDataset:
@@ -107,6 +110,45 @@ class TrackingAstrositeDataset(AstrositeDataset):
         completed_labelled_datasets=(np.concatenate((first_event,sat_events[sat_events['label']==-1],last_event)))
         return completed_labelled_datasets, sample['target_id']
     
+class SpectrogramDataset(AstrositeDataset):
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+        one_hot_label = torch.zeros((len(self.split)), dtype=torch.long)
+        sat_events = sample['labelled_events']
+        last_timestamp = sample['events'][-1][0]
+        first_timestamp = sample['events'][0][0]
+        if last_timestamp-first_timestamp < 2e7:
+            print("sample duration smaller than 20sec")
+            return self.__getitem__(index+1)
+        else :
+            last_timestamp = 2e7
+        first_timestamp = sample['events'][0][0]
+        first_event = np.array([(first_timestamp,0,0,True,0)],dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
+        last_event = np.array([(last_timestamp,0,0,True,0)],dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
+        completed_labelled_datasets=(np.concatenate((first_event,sat_events[sat_events['label']==-1],last_event)))
+        activity = []
+        ts = []
+        event_counter = 0
+        event_activity = 0.0
+        previous_t = 0  # µs
+        t0 = completed_labelled_datasets[0][0]
+        tf = completed_labelled_datasets[-1][0]
+        tau = 100 #us
+        event_count = 0
+        time_step = 100
+        for t in range(t0, tf, time_step):
+            delta_t = t - previous_t
+            event_activity *= math.exp(-float(time_step) / tau) # Leak
+            while t > completed_labelled_datasets[event_count][0]:
+                event_activity += 1                               # Integrate
+                event_count += 1
+            ts.append(t)
+            activity.append(event_activity)
+        #spectrogram = np.fft.fft(activity, )
+        spec = plt.specgram(activity, Fs=0.1, NFFT=1024)
+        one_hot_label[np.where(np.array(self.split) == sample['target_id'])] = 1
+        return torch.tensor(spec[0],dtype=torch.float).unsqueeze(0),one_hot_label
+
 class MergedDataset(Dataset):
     def __init__(self, dataset1, dataset2):
         assert len(dataset1) == len(dataset2)
