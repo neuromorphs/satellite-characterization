@@ -27,9 +27,10 @@ class AstrositeDataset:
     """
     sensor_size = (1280, 720, 2)
 
-    def __init__(self, recordings_path, split="all", min_sat_events=1000, transform=None):
+    def __init__(self, recordings_path, split="all", min_sat_events=1000, transform=None, test=False):
         self.recordings_path = recordings_path
         self.split = split
+        self.test = test
         self.min_sat_events = min_sat_events
         if split != "all":
             self.recording_files = self.get_split()
@@ -55,12 +56,18 @@ class AstrositeDataset:
                 file_location = "/".join(file.split("/")[:-1])
                 labelled_events = np.load(file_location+"/labelled_events.npy")
                 if min(list(set(labelled_events['label']))) >= -1 and len(labelled_events[labelled_events['label'] == -1]) >= self.min_sat_events :
-                    recording_files.append(file_location)
-                if not(dict_file['object']['id'] in files_per_satellites):
-                    files_per_satellites[satellite_id] = {"occurences" : 1 , "locations":[file]}
-                else:
-                    files_per_satellites[satellite_id]["locations"].append(file)
-                    files_per_satellites[satellite_id]["occurences"] += 1
+                    if not(dict_file['object']['id'] in files_per_satellites):
+                        files_per_satellites[satellite_id] = {"occurences" : 1 , "locations":[file_location]}
+                    else:
+                        files_per_satellites[satellite_id]["locations"].append(file_location)
+                        files_per_satellites[satellite_id]["occurences"] += 1
+            json_load.close()
+        for satellite_id in files_per_satellites.keys():
+            length = files_per_satellites[satellite_id]['occurences']
+            if self.test :
+                recording_files += files_per_satellites[satellite_id]['locations'][int(0.8*length):]
+            else :
+                recording_files += files_per_satellites[satellite_id]['locations'][:int(0.8*length)]
         return recording_files
 
     def __getitem__(self, idx):
@@ -68,7 +75,6 @@ class AstrositeDataset:
             raise IndexError("Index out of range")
 
         recording_path = self.recording_files[idx]
-
         # Placeholder function to load events.es file
         def load_events_es(file_path):
             decoder = event_stream.Decoder(file_path)
@@ -78,7 +84,6 @@ class AstrositeDataset:
         events_es_path = os.path.join(recording_path, "events.es")
         labelled_events_path = os.path.join(recording_path, "labelled_events.npy")
         recording_json_path = os.path.join(recording_path, "recording.json")
-
         events = load_events_es(events_es_path)
         labelled_events = np.load(labelled_events_path, allow_pickle=True)
         with open(recording_json_path, "r") as f:
