@@ -20,16 +20,16 @@ class LeNet5(nn.Module):
             nn.BatchNorm2d(16),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size = 2, stride = 2))
-        self.fc = nn.Linear(403, 120)
+        self.fc = nn.Linear(6448, 1000)
         self.relu = nn.ReLU()
-        self.fc1 = nn.Linear(120, 84)
+        self.fc1 = nn.Linear(1000, 200)
         self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(84, num_classes)
+        self.fc2 = nn.Linear(200, num_classes)
         
     def forward(self, x):
         out = self.layer1(x)
         out = self.layer2(out)
-        out = torch.flatten(out,2,3)
+        out = torch.flatten(out,1,3)
         out = self.fc(out)
         out = self.relu(out)
         out = self.fc1(out)

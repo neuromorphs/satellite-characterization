@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, Dataset
 from tonic.slicers import SliceByTime
 from tonic import SlicedDataset, transforms
 import matplotlib.pyplot as plt
+import scipy
 #from events_analysis import events_to_spectrogram
 
 
@@ -118,7 +119,7 @@ class TrackingAstrositeDataset(AstrositeDataset):
 class SpectrogramDataset(AstrositeDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
-        one_hot_label = torch.zeros((len(self.split)), dtype=torch.long)
+        one_hot_label = torch.zeros((len(self.split)), dtype=torch.float)
         sat_events = sample['labelled_events']
         last_timestamp = sample['events'][-1][0]
         first_timestamp = sample['events'][0][0]
@@ -150,7 +151,10 @@ class SpectrogramDataset(AstrositeDataset):
             ts.append(t)
             activity.append(event_activity)
         #spectrogram = np.fft.fft(activity, )
+        #spectrogram = scipy.signal.spectrogram(np.array(activity), fs=0.01, nfft=1024)
+        #plt.imshow(spectrogram[2])
         spec = plt.specgram(activity, Fs=0.1, NFFT=1024)
+        #plt.show()
         one_hot_label[np.where(np.array(self.split) == sample['target_id'])] = 1
         return torch.tensor(spec[0],dtype=torch.float).unsqueeze(0),one_hot_label
 
