@@ -77,15 +77,15 @@ class AstrositeDataset:
 
         recording_path = self.recording_files[idx]
         # Placeholder function to load events.es file
-        def load_events_es(file_path):
-            decoder = event_stream.Decoder(file_path)
-            chunks = [chunk for chunk in decoder]
-            return np.concatenate(chunks)
-
+            
         events_es_path = os.path.join(recording_path, "events.es")
         labelled_events_path = os.path.join(recording_path, "labelled_events.npy")
         recording_json_path = os.path.join(recording_path, "recording.json")
-        events = load_events_es(events_es_path)
+
+        with event_stream.Decoder(events_es_path) as decoder:
+            chunks = [chunk for chunk in decoder]
+            events = np.concatenate(chunks)
+
         labelled_events = np.load(labelled_events_path, allow_pickle=True)
         with open(recording_json_path, "r") as f:
             recording_data = json.load(f)
@@ -104,7 +104,13 @@ class ClassificationAstrositeDataset(AstrositeDataset):
         sample = super().__getitem__(index)
         return sample["events"], sample['target_id']
 
-
+class OnlySatellitesAstrositeDataset(AstrositeDataset):
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+        sat_events = sample['labelled_events']
+        sat_events = sat_events[sat_events['label'] == -1]
+        return sat_events, sample['target_id']
+    
 class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
