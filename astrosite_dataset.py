@@ -45,8 +45,9 @@ class AstrositeDataset:
         recording_files = []
         files_per_satellites = {}
         for file in files:
-            json_load = open(file)
-            dict_file = json.load(json_load)
+            with open(file, "r") as f:
+                dict_file = json.load(f)
+            f.close()
             satellite_id = dict_file["object"]["id"]
             if satellite_id in self.split:
                 file_location = "/".join(file.split("/")[:-1])
@@ -77,9 +78,10 @@ class AstrositeDataset:
         recording_json_path = os.path.join(recording_path, "recording.json")
 
         events = load_events_es(events_es_path)
-        labelled_events = np.load(labelled_events_path, allow_pickle=True)
         with open(recording_json_path, "r") as f:
             recording_data = json.load(f)
+
+        labelled_events = np.load(labelled_events_path, allow_pickle=True)
 
         labelled_events = labelled_events.view(dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
         return {
@@ -96,6 +98,30 @@ class ClassificationAstrositeDataset(AstrositeDataset):
         return sample["events"], sample['target_id']
 
 
+class BinaryClassificationAstrositeDataset(AstrositeDataset):
+    def __init__(
+            self, recordings_path, split="all", min_sat_events=1000,
+            transform=None, perm_seed: int = 0):
+        super().__init__(
+            recordings_path, split=split, min_sat_events=min_sat_events,
+            transform=transform)
+        # create permutation
+        rng_state = torch.get_rng_state()
+        torch.manual_seed(perm_seed)
+        self.is_satellite = torch.rand(len(self)) > 0.5
+        torch.set_rng_state(rng_state)
+
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+
+        if self.is_satellite[index]:
+            return sample["events"], 1
+        sat_events = sample['labelled_events']
+        mask = sat_events["label"] < 0
+
+        return sat_events[~mask], 0
+
+    
 class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
