@@ -110,6 +110,11 @@ class OnlySatellitesAstrositeDataset(AstrositeDataset):
         sat_events = sample['labelled_events']
         sat_events = sat_events[sat_events['label'] == -1]
         return sat_events, sample['target_id']
+
+class LabelledEventsAstrositeDataset(AstrositeDataset):
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+        return sample['labelled_events'], sample['target_id']
     
 class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
