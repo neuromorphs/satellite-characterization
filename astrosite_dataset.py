@@ -107,15 +107,18 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         self.is_satellite = torch.rand(len(self)) >= 0.5
         torch.set_rng_state(rng_state)
 
+    def __len__(self):
+        return super().__len__()*2
+
     def __getitem__(self, index):
         sample = super().__getitem__(index)
-
         sat_events = sample['labelled_events']
-        if self.is_satellite[index]:
-            return sat_events, 1
-        mask = sat_events["label"] < 0
 
-        return sat_events[~mask], 0
+        if index%2 == 0 :
+            return sat_events, 1
+        else :
+            mask = sat_events["label"] < 0
+            return sat_events[~mask], 0
 
     
 class TrackingAstrositeDataset(AstrositeDataset):
