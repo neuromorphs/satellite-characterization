@@ -9,7 +9,8 @@ from classification_model import SpectrogramCNN
 def main(args):
     data_module = ClassificationDataset(batch_size=args.batch_size, dataset_path=args.dataset_path)
 
-    model = SpectrogramCNN(num_classes=args.num_classes)
+    class_names = ["39483", "39485", "39624", "40921", "43751", "43752", "50574", "51102"]
+    model = SpectrogramCNN(num_classes=args.num_classes, class_names=class_names)
 
     # Callbacks
     checkpoint_callback = ModelCheckpoint(
