@@ -104,7 +104,7 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         # create permutation
         rng_state = torch.get_rng_state()
         torch.manual_seed(perm_seed)
-        self.is_satellite = torch.rand(len(self)) > 0.5
+        self.is_satellite = torch.rand(len(self)) >= 0.5
         torch.set_rng_state(rng_state)
 
     def __getitem__(self, index):
@@ -128,7 +128,7 @@ class TrackingAstrositeDataset(AstrositeDataset):
         last_event = np.array([(last_timestamp,0,0,True,0)],dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
         completed_labelled_datasets=(np.concatenate((first_event,sat_events[sat_events['label']==-1],last_event)))
         return completed_labelled_datasets, sample['target_id']
-    
+
 class MergedDataset(Dataset):
     def __init__(self, dataset1, dataset2):
         assert len(dataset1) == len(dataset2)
