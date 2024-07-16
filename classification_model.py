@@ -10,7 +10,7 @@ import torchvision
 
 
 class SpectrogramCNN(pl.LightningModule):
-    def __init__(self, num_classes=8):
+    def __init__(self, num_classes=8, class_names=None):
         super().__init__()
         self.model = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=(3, 6)),
@@ -27,6 +27,7 @@ class SpectrogramCNN(pl.LightningModule):
             nn.Linear(128, num_classes),
         )
         self.num_classes = num_classes
+        self.class_names = class_names if class_names else [f'Class {i}' for i in range(num_classes)]
         self.confusion_matrix = ConfusionMatrix(
             task="multiclass", num_classes=num_classes
         )
@@ -57,7 +58,7 @@ class SpectrogramCNN(pl.LightningModule):
         self.confusion_matrix.reset()
 
         fig, ax = plt.subplots(figsize=(10, 10))
-        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", ax=ax)
+        sns.heatmap(cm, annot=True, fmt="d", cmap="Blues", xticklabels=self.class_names, yticklabels=self.class_names, ax=ax)
         ax.set_xlabel("Predicted Labels")
         ax.set_ylabel("True Labels")
         ax.set_title("Confusion Matrix")
