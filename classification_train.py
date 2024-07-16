@@ -9,7 +9,7 @@ from classification_model import SpectrogramCNN
 def main(args):
     data_module = ClassificationDataset(batch_size=args.batch_size, dataset_path=args.dataset_path)
 
-    model = SpectrogramCNN(num_classes=args.num_classes)
+    model = SpectrogramCNN(num_classes=2) #args.num_classes)
 
     # Callbacks
     checkpoint_callback = ModelCheckpoint(
@@ -23,7 +23,7 @@ def main(args):
     logger = TensorBoardLogger("tb_logs", name="spectrogram_cnn")
 
     trainer = Trainer(
-        accelerator='mps',
+        accelerator='gpu',
         max_epochs=args.max_epochs,
         callbacks=[checkpoint_callback],
         logger=logger
@@ -34,10 +34,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a Spectrogram CNN with PyTorch Lightning')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size for training (default: 32)')
-    parser.add_argument('--dataset_path', type=str, default="data/astrosite/spectrograms", help='Path to dataset (default: data/astrosite/spectrograms)')
+    parser.add_argument('--dataset_path', type=str, default="data/astrosite/spectrograms", help='Path to dataset (default: data/astrosite/spectrograms_training)')
     parser.add_argument('--num_classes', type=int, default=8, help='Number of classes (default: 5)')
     parser.add_argument('--checkpoint_dir', type=str, default='checkpoints', help='Directory to save checkpoints (default: checkpoints)')
-    parser.add_argument('--max_epochs', type=int, default=20, help='Maximum number of epochs (default: 10)')
+    parser.add_argument('--max_epochs', type=int, default=10, help='Maximum number of epochs (default: 10)')
 
     args = parser.parse_args()
     main(args)

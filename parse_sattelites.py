@@ -2,7 +2,7 @@ import json
 import glob
 import os
 
-files = [f for f in glob.glob("recordings/**/recording.json")]
+files = [f for f in glob.glob("../filtered_dataset/recordings/**/recording.json")]
 files_per_satellites = {}
 satellites_complete = {}
 for file in files:
@@ -17,5 +17,5 @@ for file in files:
         files_per_satellites[satellite_id]["occurences"]+=1
         satellites_complete[satellite_id][file] =dict_file['object']
 
-with open("files_per_satellites.json", "w") as outfile: 
+with open("files_per_satellites_filtered.json", "w") as outfile: 
     json.dump(files_per_satellites, outfile, indent=4)

@@ -78,7 +78,6 @@ def plot_spectrogram_steady(dataset, tau=100.0, n_files=20):
         axis[k//4, k%4].plot(activity)
         axis[k//4, k%4].axes.get_xaxis().set_visible(False)
         axis[k//4, k%4].set_title(id)
-    print("before the show()")
     plt.show()
 
 def plot_spectrogram(dataset, tau=100.0, n_files=20):

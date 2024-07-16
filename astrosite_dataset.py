@@ -99,6 +99,95 @@ class AstrositeDataset:
         }
 
 
+class TumblingDataset:
+    """Dataset class for the Astrosite dataset. One sample consists of the events, labelled events,
+    and recording data and target ID for a single recording.
+
+    Args:
+        recordings_path (str): Path to the directory containing the recordings.
+        split (str, optional): The split to use. Can be either 'all' or a list of satellite IDs.
+            If 'all', all recordings are used. If a list of satellite IDs, only recordings from
+            those satellites are used. Defaults to 'all'.
+        min_sat_events (int, optional): The minimum number of events with label -1 that a recording
+            must have to be included in the dataset. Defaults to 1000.
+    """
+    sensor_size = (1280, 720, 2)
+
+    def __init__(self, recordings_path, split="all", min_sat_events=1000, transform=None, test=False):
+        self.recordings_path = recordings_path
+        self.split = split
+        self.test = test
+        self.min_sat_events = min_sat_events
+        if split != "all":
+            self.recording_files = self.get_split()
+        else:
+            self.recording_files = [
+                os.path.join(recordings_path, folder)
+                for folder in os.listdir(recordings_path)
+                if os.path.isdir(os.path.join(recordings_path, folder))
+            ]
+
+    def __len__(self):
+        return len(self.recording_files)
+
+    def get_split(self):
+        files = [f for f in glob.glob(self.recordings_path + "/**/metadata.json")]
+        recording_files = []
+        files_per_satellites = {}
+        for file in files:
+            json_load = open(file)
+            dict_file = json.load(json_load)
+            satellite_id = dict_file['calculated_properties']["objects"][0]["id"]
+            if satellite_id in self.split:
+                file_location = "/".join(file.split("/")[:-1])
+                if os.path.isfile(file_location+"/labelled_events.npy"):
+                    labelled_events = np.load(file_location+"/labelled_events.npy")
+                    if len(labelled_events['label'])>0 :
+                        if min(list(set(labelled_events['label']))) >= -1 and len(labelled_events[labelled_events['label'] == -1]) >= self.min_sat_events :
+                            if not(satellite_id in files_per_satellites):
+                                files_per_satellites[satellite_id] = {"occurences" : 1 , "locations":[file_location]}
+                            else:
+                                files_per_satellites[satellite_id]["locations"].append(file_location)
+                                files_per_satellites[satellite_id]["occurences"] += 1
+            json_load.close()
+        for satellite_id in files_per_satellites.keys():
+            length = files_per_satellites[satellite_id]['occurences']
+            if self.test :
+                recording_files += files_per_satellites[satellite_id]['locations'][int(0.8*length):]
+            else :
+                recording_files += files_per_satellites[satellite_id]['locations'][:int(0.8*length)]
+        return recording_files
+
+    def __getitem__(self, idx):
+        if idx >= len(self.recording_files):
+            raise IndexError("Index out of range")
+
+        recording_path = self.recording_files[idx]
+        # Placeholder function to load events.es file
+        
+
+        events_es_paths = [f for f in glob.glob(recording_path + "/*.es")]
+        labelled_events_path = os.path.join(recording_path, "labelled_events.npy")
+        recording_json_path = os.path.join(recording_path, "metadata.json")
+
+        assert len(events_es_paths) == 1 
+        with event_stream.Decoder(events_es_paths[0]) as decoder:
+            chunks = [chunk for chunk in decoder]
+            events = np.concatenate(chunks)
+
+        labelled_events = np.load(labelled_events_path, allow_pickle=True)
+        with open(recording_json_path, "r") as f:
+            recording_data = json.load(f)
+
+        labelled_events = labelled_events.view(dtype=np.dtype([('t', '<u8'), ('x', '<u2'), ('y', '<u2'), (('on', 'p'), '?'), ('label', '<i2')]))
+        return {
+            "events": events,
+            "labelled_events": labelled_events,
+            "recording_data": recording_data,
+            "target_id": recording_data['calculated_properties']["objects"][0]["id"],
+        }
+
+
 class ClassificationAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
@@ -112,6 +201,11 @@ class OnlySatellitesAstrositeDataset(AstrositeDataset):
         return sat_events, sample['target_id']
 
 class LabelledEventsAstrositeDataset(AstrositeDataset):
+    def __getitem__(self, index):
+        sample = super().__getitem__(index)
+        return sample['labelled_events'], sample['target_id']
+    
+class LabelledEventsTumblingDataset(TumblingDataset):
     def __getitem__(self, index):
         sample = super().__getitem__(index)
         return sample['labelled_events'], sample['target_id']
