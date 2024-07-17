@@ -9,6 +9,49 @@ from torch.utils.data import DataLoader, Dataset
 from tonic.slicers import SliceByTime
 from tonic import SlicedDataset, transforms
 
+def gaussian2D(shape, sigma=1):
+    m, n = [(ss - 1.) / 2. for ss in shape]
+    y, x = np.ogrid[-m:m+1,-n:n+1]
+
+    h = np.exp(-(x * x + y * y) / (2 * sigma * sigma))
+    h[h < np.finfo(h.dtype).eps * h.max()] = 0
+    return h
+
+def generate_heatmap(target, size=(36,64), sigma=5):
+    #print("Generate heatmap", target.shape) #(10, 2, 40, 60)
+    events = np.nonzero(target)
+    if len(events[0]) == 0 :
+        return np.expand_dims(np.zeros(size),0)
+    y,x = int(np.mean(events[2])//4), int(np.mean(events[3])//4)
+
+    #heatmap, center, radius, k=1
+    #centernet draw_umich_gaussian for not mse_loss
+    k=1
+    heatmap = np.zeros(size)
+    height, width = size
+    diameter = sigma#2 * radius + 1
+    radius = sigma//2
+    #c = norse.torch.functional.receptive_field.covariance_matrix(sigma, sigma)
+    #heatmap = norse.torch.functional.receptive_field.gaussian_kernel(size, c)
+    gaussian = gaussian2D((diameter, diameter), sigma=diameter / 6)
+
+    tops = [[x,y]]
+
+
+    for top in tops:
+        x,y = top
+
+        left, right = min(x, radius), min(width - x, radius + 1)
+        top, bottom = min(y, radius), min(height - y, radius + 1)
+
+        masked_heatmap  = heatmap[y - top:y + bottom, x - left:x + right]
+        masked_gaussian = gaussian[radius - top:radius + bottom, radius - left:radius + right]
+        if min(masked_gaussian.shape) > 0 and min(masked_heatmap.shape) > 0: # TODO debug
+            np.maximum(masked_heatmap, masked_gaussian * k, out=masked_heatmap)
+
+    heatmap[heatmap>1] = 1
+    return np.expand_dims(heatmap,0)
+
 
 class AstrositeDataset:
     """Dataset class for the Astrosite dataset. One sample consists of the events, labelled events,
@@ -108,12 +151,11 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         torch.set_rng_state(rng_state)
 
     def __len__(self):
-        return super().__len__()*2
+        return super().__len__() * 2
 
     def __getitem__(self, index):
-        sample = super().__getitem__(index)
+        sample = super().__getitem__(index//2)
         sat_events = sample['labelled_events']
-
         if index%2 == 0 :
             return sat_events, 1
         else :
@@ -137,25 +179,139 @@ class MergedDataset(Dataset):
         assert len(dataset1) == len(dataset2)
         self.dataset1 = dataset1
         self.dataset2 = dataset2
-        
+        c,h,w = self.dataset1[0][0].shape[1:]
+
+        #padding incomplete samples
+        """  for idx in range(len(dataset1)):
+            if self.dataset1[idx][0].shape[0] != 10 :
+                self.dataset1[idx] = np.concatenate((self.dataset1[idx][0], \
+                                                        np.zeros((10-self.dataset1[idx][0].shape[0],c,h,w)))), self.dataset1[idx][1]
+            if self.dataset2[idx][0].shape[0] != 10:
+                self.dataset2[idx] = np.concatenate((self.dataset2[idx][0], \
+                                                        np.zeros((10-self.dataset2[idx][0].shape[0],c,h,w)))), self.dataset2[idx][1]
+         """
     def __len__(self):
         return len(self.dataset1)
     
     def __getitem__(self, idx):
-        assert self.dataset1[idx][1] == self.dataset2[idx][1]
-        return torch.tensor(self.dataset1[idx][0]), torch.tensor(self.dataset2[idx][0]), self.dataset1[idx][1]
+        #if self.dataset1[idx][0].shape[0] != 10 or self.dataset2[idx][0].shape[0] != 10 :
+        #    return self.__getitem__(idx+1)
+        return self.dataset1[idx][0], generate_heatmap(self.dataset2[idx][0]) #, self.dataset1[idx][1]
     
-def build_merge_dataset(dataset_path, split=['all'],metadata_paths =['metadata/1','metadata/2'] ) :
+def build_merge_dataset(dataset_path, split=['all'],metadata_paths =['metadata/3','metadata/4'] ) :
     dataset1 = ClassificationAstrositeDataset(dataset_path, split=split)
     dataset2 = TrackingAstrositeDataset(dataset_path, split=split)
 
     assert len(dataset1) == len(dataset2)
+    for s1,s2 in zip(dataset1, dataset2):
+        assert (s1[0][-1][0] - s1[0][0][0]) == (s2[0][-1][0] - s2[0][0][0])
 
-    slicer = SliceByTime(time_window=1e6, include_incomplete=False)
-    frame_transform = transforms.ToFrame(sensor_size=dataset1.sensor_size, time_window=1e5, include_incomplete=True)
+    slice_sample = 1e7
+    slice_bin = 1e6
+    slicer = SliceByTime(time_window=slice_sample, reset_time=True, start_time=0, end_time=30e6, include_incomplete=False)
+    preprocessing_transform = transforms.Compose(
+    [
+        transforms.Downsample(spatial_factor=0.2),
+        #transforms.RandomCrop(sensor_size=(128,72,2), target_size=(60,40)),
+        transforms.ToFrame(sensor_size=(256,144,2), time_window=slice_bin, start_time=0, end_time=slice_sample)
+    ])
 
-    sliced_dataset1 = SlicedDataset(dataset1, slicer=slicer, metadata_path=metadata_paths[0], transform=frame_transform)
-    sliced_dataset2 = SlicedDataset(dataset2, slicer=slicer, metadata_path=metadata_paths[1], transform=frame_transform)
+    sliced_dataset1 = SlicedDataset(dataset1, slicer=slicer, metadata_path=metadata_paths[0], transform=preprocessing_transform)
+    sliced_dataset2 = SlicedDataset(dataset2, slicer=slicer, metadata_path=metadata_paths[1], transform=preprocessing_transform)
+    #for s1 in sliced_dataset1:
+    #    assert s1[0].shape[0] == 10
 
     return MergedDataset(sliced_dataset1, sliced_dataset2)
-    
+
+class EgoMotionDataset(torch.utils.data.Dataset):
+    def __init__(
+            self, size, width, height, velocity: list, obj_size: int = 3,
+            n_objects: int = 10, noise_level: int = 0.01, shift: int = 10,
+            period: int = 500, period_sim = 10000, label=1):
+        self.size = size
+        self.obj_size = obj_size
+        self.velocity = velocity
+        self.width = width
+        self.height = height
+        self.n_objects = n_objects
+        self.noise_level = noise_level
+        self.shift = shift
+        self.period = period
+        self.period_sim = period_sim
+        self.label = label
+
+    def __len__(self):
+        return self.size
+
+    def _generate_sample(self):
+
+        time_slices = []
+        coherent_noise = np.random.uniform(
+            size=(self.height + 2*self.obj_size, self.width + 2*self.obj_size)
+            ) < self.noise_level
+        for _ in range(int(self.period_sim / self.period)):
+            coherent_noise = np.roll(coherent_noise, shift=self.shift, axis=1)
+            time_slices.append(torch.tensor(coherent_noise))
+        noise = torch.stack(time_slices)
+
+        objects = torch.zeros_like(noise)
+        rv = np.random.rand()
+        rd = np.random.uniform(size=2) * (
+                np.random.randint(0, 2, size=2)*2-1)
+        
+        for n in range(self.n_objects):
+            if self.label==1:
+                if n == 0:
+                    direction = np.random.uniform(size=2) * (
+                        np.random.randint(0, 2, size=2)*2-1)
+                    direction = direction / np.sqrt(direction[0]**2 + direction[1]**2)
+                    offset = [
+                        np.random.randint(int(self.width*.4),high=int(self.width*.6)),
+                        np.random.randint(int(self.height*.4),high=int(self.height*.6))]
+                    velocity = self.velocity[0] + np.random.rand()*.5 / (
+                        self.velocity[1] - self.velocity[0])
+                    
+                else:
+                    direction = rd
+                    direction = direction / np.sqrt(direction[0]**2 + direction[1]**2)
+                    offset = [
+                        np.random.randint(self.obj_size, high=self.width),
+                        np.random.randint(self.obj_size, high=self.height)]
+
+                    velocity = self.velocity[0] + rv / (
+                        self.velocity[1] - self.velocity[0])
+            else:
+                direction = rd
+                direction = direction / np.sqrt(direction[0]**2 + direction[1]**2)
+                offset = [
+                    np.random.randint(self.obj_size, high=self.width),
+                    np.random.randint(self.obj_size, high=self.height)]
+
+                velocity = self.velocity[0] + rv / (
+                    self.velocity[1] - self.velocity[0])
+                
+            Y, X = np.ogrid[:self.obj_size, :self.obj_size]
+            center = (int(self.obj_size / 2), int(self.obj_size / 2))
+            dist_from_center = np.sqrt((X - center[0])**2 + (Y - center[1])**2)
+            mask = torch.tensor(dist_from_center <= self.obj_size // 2)
+            
+            self.sat_trajectory = []
+            for i, n in enumerate(objects):
+                x = direction[0] * i * velocity + offset[0]
+                x = int(direction[0] * i * velocity + offset[0])
+                x = max(0, min(x, self.width + self.obj_size))
+                y = int(direction[1] * i * velocity + offset[1])
+                y = max(0, min(y, self.height + self.obj_size))
+                n[y: y + self.obj_size, x: x + self.obj_size][mask] = 1
+
+                if i == 0:
+                    self.sat_trajectory.append((x,y))
+
+        sample = objects
+        sample = sample[:, 40:120,60:180]
+        target = 0
+        return sample.unsqueeze(1).float(), target
+
+    def __getitem__(self, index: int):
+        sample = self._generate_sample()
+        return sample
