@@ -17,13 +17,8 @@ def gaussian2D(shape, sigma=1):
     h[h < np.finfo(h.dtype).eps * h.max()] = 0
     return h
 
-def generate_heatmap(target, size=(36,64), sigma=5):
+def generate_heatmap(y,x, size=(10,15), sigma=5):
     #print("Generate heatmap", target.shape) #(10, 2, 40, 60)
-    events = np.nonzero(target)
-    if len(events[0]) == 0 :
-        return np.expand_dims(np.zeros(size),0)
-    y,x = int(np.mean(events[2])//4), int(np.mean(events[3])//4)
-
     #heatmap, center, radius, k=1
     #centernet draw_umich_gaussian for not mse_loss
     k=1
@@ -161,7 +156,6 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         else :
             mask = sat_events["label"] < 0
             return sat_events[~mask], 0
-
     
 class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
@@ -179,47 +173,61 @@ class MergedDataset(Dataset):
         assert len(dataset1) == len(dataset2)
         self.dataset1 = dataset1
         self.dataset2 = dataset2
-        c,h,w = self.dataset1[0][0].shape[1:]
+        self.c,self.h,self.w = self.dataset1[0][0].shape[1:]
 
-        #padding incomplete samples
-        """  for idx in range(len(dataset1)):
-            if self.dataset1[idx][0].shape[0] != 10 :
-                self.dataset1[idx] = np.concatenate((self.dataset1[idx][0], \
-                                                        np.zeros((10-self.dataset1[idx][0].shape[0],c,h,w)))), self.dataset1[idx][1]
-            if self.dataset2[idx][0].shape[0] != 10:
-                self.dataset2[idx] = np.concatenate((self.dataset2[idx][0], \
-                                                        np.zeros((10-self.dataset2[idx][0].shape[0],c,h,w)))), self.dataset2[idx][1]
-         """
     def __len__(self):
         return len(self.dataset1)
     
     def __getitem__(self, idx):
         #if self.dataset1[idx][0].shape[0] != 10 or self.dataset2[idx][0].shape[0] != 10 :
         #    return self.__getitem__(idx+1)
-        return self.dataset1[idx][0], generate_heatmap(self.dataset2[idx][0]) #, self.dataset1[idx][1]
+        events = np.nonzero(self.dataset2[idx][0])
+        if len(events[0]) == 0 :
+            return self.dataset1[idx][0], np.expand_dims(np.zeros((self.h,self.w)),0)
+        y,x = int(np.mean(events[2])//4), int(np.mean(events[3])//4)
+        return self.dataset1[idx][0], generate_heatmap(y,x, size=(self.h//4, self.w//4)) #, self.dataset1[idx][1]
     
-def build_merge_dataset(dataset_path, split=['all'],metadata_paths =['metadata/3','metadata/4'] ) :
+def build_merge_dataset(dataset_path, split=['all'], metadata_paths =['metadata/3','metadata/4'], crop=False,) :
     dataset1 = ClassificationAstrositeDataset(dataset_path, split=split)
     dataset2 = TrackingAstrositeDataset(dataset_path, split=split)
 
     assert len(dataset1) == len(dataset2)
-    for s1,s2 in zip(dataset1, dataset2):
-        assert (s1[0][-1][0] - s1[0][0][0]) == (s2[0][-1][0] - s2[0][0][0])
-
+    n_slices = 0
+    event_density = 0
     slice_sample = 1e7
     slice_bin = 1e6
-    slicer = SliceByTime(time_window=slice_sample, reset_time=True, start_time=0, end_time=30e6, include_incomplete=False)
-    preprocessing_transform = transforms.Compose(
-    [
-        transforms.Downsample(spatial_factor=0.2),
-        #transforms.RandomCrop(sensor_size=(128,72,2), target_size=(60,40)),
-        transforms.ToFrame(sensor_size=(256,144,2), time_window=slice_bin, start_time=0, end_time=slice_sample)
-    ])
+    for sample in dataset1 :
+        duration = sample[0][-1][0] - sample[0][0][0]
+        event_density += len(sample[0])
+        n_slices+=duration//slice_sample
+    print("Expected size:",n_slices)
+    print("Event density:", event_density/(10*n_slices))
+
+    slicer = SliceByTime(time_window=slice_sample, reset_time=True, start_time=0 ,include_incomplete=False)
+    if crop:
+        preprocessing_transform = transforms.Compose(
+        [
+            #transforms.Denoise(filter_time=1000),
+            transforms.Downsample(spatial_factor=0.1),
+            transforms.CenterCrop(sensor_size=(128,72,2), size=(60,40)),
+            transforms.ToFrame(sensor_size=(60,40,2), time_window=slice_bin, start_time=0, end_time=slice_sample)
+        ])
+    else:
+        preprocessing_transform = transforms.Compose(
+        [
+            transforms.Denoise(filter_time=1000),
+            transforms.Downsample(spatial_factor=0.2),
+            transforms.ToFrame(sensor_size=(256,144,2), time_window=slice_bin, start_time=0, end_time=slice_sample)
+        ])
 
     sliced_dataset1 = SlicedDataset(dataset1, slicer=slicer, metadata_path=metadata_paths[0], transform=preprocessing_transform)
     sliced_dataset2 = SlicedDataset(dataset2, slicer=slicer, metadata_path=metadata_paths[1], transform=preprocessing_transform)
-    #for s1 in sliced_dataset1:
-    #    assert s1[0].shape[0] == 10
+    count=0
+    """ for s1 in sliced_dataset1:
+        print(type(s1[0]))
+        if np.sum(s1[0]) == 0:
+            count +=1
+    print("Empty sample ratio:", (count/len(sliced_dataset1))) """
 
     return MergedDataset(sliced_dataset1, sliced_dataset2)
 
@@ -241,7 +249,7 @@ class EgoMotionDataset(torch.utils.data.Dataset):
         self.label = label
 
     def __len__(self):
-        return self.size
+        return int(self.size)
 
     def _generate_sample(self):
 
@@ -255,6 +263,8 @@ class EgoMotionDataset(torch.utils.data.Dataset):
         noise = torch.stack(time_slices)
 
         objects = torch.zeros_like(noise)
+        sat = torch.zeros_like(noise)
+
         rv = np.random.rand()
         rd = np.random.uniform(size=2) * (
                 np.random.randint(0, 2, size=2)*2-1)
@@ -270,6 +280,7 @@ class EgoMotionDataset(torch.utils.data.Dataset):
                         np.random.randint(int(self.height*.4),high=int(self.height*.6))]
                     velocity = self.velocity[0] + np.random.rand()*.5 / (
                         self.velocity[1] - self.velocity[0])
+                    self.sat_offset = offset
                     
                 else:
                     direction = rd
@@ -294,23 +305,30 @@ class EgoMotionDataset(torch.utils.data.Dataset):
             center = (int(self.obj_size / 2), int(self.obj_size / 2))
             dist_from_center = np.sqrt((X - center[0])**2 + (Y - center[1])**2)
             mask = torch.tensor(dist_from_center <= self.obj_size // 2)
+
             
             self.sat_trajectory = []
-            for i, n in enumerate(objects):
+            for i, o in enumerate(objects if n!=0 else sat):
                 x = direction[0] * i * velocity + offset[0]
                 x = int(direction[0] * i * velocity + offset[0])
                 x = max(0, min(x, self.width + self.obj_size))
                 y = int(direction[1] * i * velocity + offset[1])
                 y = max(0, min(y, self.height + self.obj_size))
-                n[y: y + self.obj_size, x: x + self.obj_size][mask] = 1
+                o[y: y + self.obj_size, x: x + self.obj_size][mask] = 1
 
-                if i == 0:
-                    self.sat_trajectory.append((x,y))
+        sample = objects + sat
+        sample[sample>1] = 1
 
-        sample = objects
-        sample = sample[:, 40:120,60:180]
-        target = 0
-        return sample.unsqueeze(1).float(), target
+        #sample = objects
+        #print(sat.shape)
+        #print(np.nonzero(sat[-1].numpy()))
+        coords = np.nonzero(sat[-1].numpy())
+        sample = np.expand_dims(sample[:,10:50,20:80],axis=1)
+        coord_y, coord_x = int(np.mean(coords[0])-10)//4, int(np.mean(coords[1])-20)//4
+        #print(sample.shape)
+        #print(generate_heatmap((self.sat_trajectory[0][1]-20)//4,(self.sat_trajectory[0][0]-10)//4,size=((self.height-20)//4, (self.width-40)//4)).shape)
+        #print(coord_x, coord_y)
+        return np.concatenate((sample,sample), axis=1), generate_heatmap(coord_y, coord_x, size=((self.height-20)//4, (self.width-40)//4))
 
     def __getitem__(self, index: int):
         sample = self._generate_sample()

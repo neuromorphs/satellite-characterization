@@ -6,22 +6,24 @@ import torchvision
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
-from astrosite_dataset import build_merge_dataset, MergedDataset
+from astrosite_dataset import build_merge_dataset, MergedDataset, EgoMotionDataset
 from models.scnn_tracker import MotionTrackerStaticSNN
 from tonic.slicers import SliceByTime
 from tonic import SlicedDataset, transforms
 import norse
+from datetime import datetime
 
 base_path = Path("./data/dynamic_tau")
-data_path = Path("data.csv")
-model_path = Path("model_1sec_sample.pt")
+model_name = datetime.now().strftime('%Y%m%d_%H%M' + 'model_generated_crop_1e-4lr')
+model_path = Path(model_name + ".pt")
+data_path = Path("data_" + model_name + ".csv")
 base_path.mkdir(exist_ok=True, parents=True)
 with open(base_path / data_path, "w") as file:
     file.write("epochs;train_loss;train_acc;val_loss;val_acc\n")
 
-lr = 1e-3
+lr = 1e-4
 reg_strength = 1e-6
-epochs = 50
+epochs = 500
 batch_size = 64
 device = torch.device("cuda") if torch.cuda.is_available() \
     else torch.device("cpu")
@@ -30,14 +32,13 @@ dtype = torch.float
 loss_fn = torch.nn.BCEWithLogitsLoss()
 
 # Membrane time constant
-tau_mem1 = 0.2
-tau_mem2 = 0.4
-tau_mem3 = 0.6
+tau_mem1 = 0.8
+tau_mem2 = 0.8
+tau_mem3 = 0.9
 train_mem = False
 
 # Target size for tonic down sampling
-input_size = [256,144]
-output_size = [15,10]
+input_size = [60,40] #[256,144]
 # Additional down sampling
 input_avg_pooling = 1
 
@@ -47,6 +48,8 @@ target_list = [
     '50574', '47851', '37951', '39533', '43751', '32711', '27831', '45465',
     '46826', '42942', '42741', '41471', '43873', '40982', '41725', '43874',
     '27711', '40892', '50005', '44637']
+
+target_list = ['32711']
 
 # Fix random seed
 np.random.seed(0)
@@ -117,6 +120,7 @@ class TransformedSubset(torch.utils.data.Dataset):
                 x = self.transform(x)
                 y = self.transform(y)
         except Exception as e :
+            print("null input")
             x = np.zeros((10,2,input_size[1], input_size[0]),dtype=np.int8)
             if self.transform:
                 x = self.transform(x)
@@ -134,7 +138,6 @@ def do_epoch(model, data_loader, optimizer, training: bool):
     accs, losses = [], []
     samples = 0
     pbar = tqdm(total=len(data_loader), unit="batch")
-    test_data, test_target = next(iter(data_loader))
     for data, target in data_loader:
 
         data = data.to(device).to(dtype)
@@ -142,13 +145,13 @@ def do_epoch(model, data_loader, optimizer, training: bool):
 
         if training:
             optimizer.zero_grad()
-
+        #print(data.shape) (64,10,2,40,60)
         # forward pass (one polarity)
         y = model(data)
         # sum-over-time
         y_mean= torch.mean(y,dim=0)
         #  loss
-        loss = heatmapLoss(y_mean,target, batch_size) #loss_fn(y_sum, target) + reg_strength * model.regularize()
+        loss = heatmapLoss(y_mean,target, batch_size) + reg_strength * model.regularize() #loss_fn(y_sum, target) + reg_strength * model.regularize()
         acc = 0
         for idx in range(y_mean.shape[0]):
             y_pred, x_pred = get_keypoint(y_mean[idx][0].cpu().detach().numpy())
@@ -179,12 +182,16 @@ def do_epoch(model, data_loader, optimizer, training: bool):
 
 
 def main():
-    dataset = build_merge_dataset(
-        dataset_path, split=target_list)
+    #dataset = build_merge_dataset(dataset_path, split=target_list, crop=True)
+    period_sim = 1000
+    period = 100
+    dataset = EgoMotionDataset(size=1e4, width=100, height=60, velocity=((period_sim / period) / np.array(
+            [period_sim / period * 1.2, period_sim / period])), period=period, 
+            period_sim=period_sim, n_objects=np.random.randint(15,high=30),obj_size=2, label=1)
 
     # Split into train and test set
     # TODO: Use val set instead of test set
-    size = len(dataset.dataset1)
+    size = len(dataset)
     print(size)
     input,target = dataset[0]
     print(input.shape)
@@ -195,9 +202,9 @@ def main():
     train_transforms = torchvision.transforms.Compose([
         torchvision.transforms.Lambda(lambda input: torch.from_numpy(input)),
         #torchvision.transforms.Lambda(lambda input: input[:, 1]),
-        torchvision.transforms.RandomHorizontalFlip(p=0.5),
-        torchvision.transforms.RandomVerticalFlip(p=0.5),
-        torchvision.transforms.RandomRotation(30),
+        #torchvision.transforms.RandomHorizontalFlip(p=0.5),
+        #torchvision.transforms.RandomVerticalFlip(p=0.5),
+        #torchvision.transforms.RandomRotation(30),
         #torchvision.transforms.Lambda(lambda input: input.unsqueeze(1)),
     ])
     val_transforms = torchvision.transforms.Compose([
