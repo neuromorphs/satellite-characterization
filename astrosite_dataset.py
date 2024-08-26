@@ -183,7 +183,7 @@ class MergedDataset(Dataset):
         #    return self.__getitem__(idx+1)
         events = np.nonzero(self.dataset2[idx][0])
         if len(events[0]) == 0 :
-            return self.dataset1[idx][0], np.expand_dims(np.zeros((self.h,self.w)),0)
+            return self.dataset1[idx][0], np.zeros((1,self.h//4,self.w//4))
         y,x = int(np.mean(events[2])//4), int(np.mean(events[3])//4)
         return self.dataset1[idx][0], generate_heatmap(y,x, size=(self.h//4, self.w//4)) #, self.dataset1[idx][1]
     
@@ -199,35 +199,41 @@ def build_merge_dataset(dataset_path, split=['all'], metadata_paths =['metadata/
     for sample in dataset1 :
         duration = sample[0][-1][0] - sample[0][0][0]
         event_density += len(sample[0])
-        n_slices+=duration//slice_sample
-    print("Expected size:",n_slices)
-    print("Event density:", event_density/(10*n_slices))
+        n_slices+=duration//slice_sample + 1
+    print("Expected size:", n_slices)
+    print("Average number of events per bin:", event_density/(10*n_slices))
 
-    slicer = SliceByTime(time_window=slice_sample, reset_time=True, start_time=0 ,include_incomplete=False)
+    slicer = SliceByTime(time_window=slice_sample, overlap=0 ,include_incomplete=False)
     if crop:
         preprocessing_transform = transforms.Compose(
         [
             #transforms.Denoise(filter_time=1000),
             transforms.Downsample(spatial_factor=0.1),
             transforms.CenterCrop(sensor_size=(128,72,2), size=(60,40)),
-            transforms.ToFrame(sensor_size=(60,40,2), time_window=slice_bin, start_time=0, end_time=slice_sample)
+            transforms.ToFrame(sensor_size=(60,40,2), time_window=slice_bin, include_incomplete=True)
         ])
     else:
         preprocessing_transform = transforms.Compose(
         [
             transforms.Denoise(filter_time=1000),
             transforms.Downsample(spatial_factor=0.2),
-            transforms.ToFrame(sensor_size=(256,144,2), time_window=slice_bin, start_time=0, end_time=slice_sample)
+            transforms.ToFrame(sensor_size=(256,144,2), time_window=slice_bin, include_incomplete=True)
         ])
 
     sliced_dataset1 = SlicedDataset(dataset1, slicer=slicer, metadata_path=metadata_paths[0], transform=preprocessing_transform)
     sliced_dataset2 = SlicedDataset(dataset2, slicer=slicer, metadata_path=metadata_paths[1], transform=preprocessing_transform)
-    count=0
-    """ for s1 in sliced_dataset1:
-        print(type(s1[0]))
-        if np.sum(s1[0]) == 0:
-            count +=1
-    print("Empty sample ratio:", (count/len(sliced_dataset1))) """
+    count = 0
+    count_incomplete = 0
+    for s1 in sliced_dataset1:
+        if len(s1[0]) :
+            if np.sum(s1[0]) == 0:
+                count +=1
+            else:
+                if s1[0].shape[0] != 10 :
+                    print(s1[0].shape)
+        else :
+            count += 1
+    print("Empty sample ratio:", (count/len(sliced_dataset1)))
 
     return MergedDataset(sliced_dataset1, sliced_dataset2)
 

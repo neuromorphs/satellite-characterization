@@ -1,6 +1,6 @@
 """ Train motion detection algoritm """
 import sys
-sys.path.append('/home/jules/Documents/satellite-characterization')
+sys.path.append('/home/lecomte/Documents/satellite-characterization')
 import torch
 import torchvision
 import numpy as np

@@ -1,6 +1,6 @@
 """ Train motion detection algoritm """
 import sys
-sys.path.append('/home/jules/Documents/satellite-characterization')
+sys.path.append('/home/lecomte/Documents/satellite-characterization')
 import torch
 import torchvision
 import numpy as np
@@ -10,7 +10,7 @@ from astrosite_dataset import build_merge_dataset, MergedDataset, EgoMotionDatas
 from models.scnn_tracker import MotionTrackerStaticSNN
 from tonic.slicers import SliceByTime
 from tonic import SlicedDataset, transforms
-import norse
+#import norse
 from datetime import datetime
 
 base_path = Path("./data/dynamic_tau")
@@ -43,13 +43,13 @@ input_size = [60,40] #[256,144]
 input_avg_pooling = 1
 
 # data
-dataset_path = '/home/jules/Documents/filtered_dataset/recordings'
+dataset_path = '/home/lecomte/Documents/datasets/filtered_dataset/recordings'
 target_list = [
     '50574', '47851', '37951', '39533', '43751', '32711', '27831', '45465',
     '46826', '42942', '42741', '41471', '43873', '40982', '41725', '43874',
     '27711', '40892', '50005', '44637']
 
-target_list = ['32711']
+#target_list = ['32711']
 
 # Fix random seed
 np.random.seed(0)
@@ -182,12 +182,12 @@ def do_epoch(model, data_loader, optimizer, training: bool):
 
 
 def main():
-    #dataset = build_merge_dataset(dataset_path, split=target_list, crop=True)
+    dataset = build_merge_dataset(dataset_path, split=target_list, crop=True)
     period_sim = 1000
     period = 100
-    dataset = EgoMotionDataset(size=1e4, width=100, height=60, velocity=((period_sim / period) / np.array(
-            [period_sim / period * 1.2, period_sim / period])), period=period, 
-            period_sim=period_sim, n_objects=np.random.randint(15,high=30),obj_size=2, label=1)
+    #dataset = EgoMotionDataset(size=1e4, width=100, height=60, velocity=((period_sim / period) / np.array(
+    #        [period_sim / period * 1.2, period_sim / period])), period=period, 
+    #        period_sim=period_sim, n_objects=np.random.randint(15,high=30),obj_size=2, label=1)
 
     # Split into train and test set
     # TODO: Use val set instead of test set
