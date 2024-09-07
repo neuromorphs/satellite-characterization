@@ -2,6 +2,8 @@ import torch
 import numpy as np
 import snntorch as snn
 
+from models.gauss_lif_detection import get_filter
+
 
 class MotionDetectionSNN(torch.nn.Module):
 

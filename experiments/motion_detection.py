@@ -7,7 +7,9 @@ import numpy as np
 from pathlib import Path
 from tqdm import tqdm
 from astrosite_dataset import BinaryClassificationAstrositeDataset
-from models.scnn_detection import MotionDetectionSNN
+from models.scnn_detection import MotionDetectionSNN, MotionDetectionDualSNN
+from models.lstm_detection import MotionDetectionLSTM
+from models.lif_detection import MotionDetectionLifSNN
 from tonic.slicers import SliceByTime
 from tonic import SlicedDataset, transforms
 
@@ -15,11 +17,10 @@ base_path = Path("./data/dynamic_tau")
 data_path = Path("data.csv")
 model_path = Path("model.pt")
 base_path.mkdir(exist_ok=True, parents=True)
-with open(base_path / data_path, "w") as file:
-    file.write("epochs;train_loss;train_acc;val_loss;val_acc\n")
 
-lr = 1e-5
-reg_strength = 1e-6
+model_name = "scnn"
+lr = 1e-4
+reg_strength = 1e-4
 epochs = 100
 batch_size = 4
 device = torch.device("cuda") if torch.cuda.is_available() \
@@ -27,12 +28,15 @@ device = torch.device("cuda") if torch.cuda.is_available() \
 print("Using device:", device)
 dtype = torch.float
 loss_fn = torch.nn.BCEWithLogitsLoss()
+# loss_fn = torch.nn.CrossEntropyLoss()
 
 # Membrane time constant
-tau_mem1 = 0.9
-tau_mem2 = 0.9
-tau_mem3 = 0.95
-train_mem = False
+tau_mem1 = 0.8
+tau_mem2 = 0.8
+tau_mem3 = 0.9
+train_mem = True
+train_v_th = True
+low_pass_filter = True
 
 # Target size for tonic down sampling
 target_size = [256, 144]
@@ -66,6 +70,33 @@ class TransformedSubset(torch.utils.data.Dataset):
         return len(self.subset)
 
 
+def get_model():
+    if model_name == "lif":
+        model = MotionDetectionLifSNN(
+            *target_size, input_avg_pooling, tau_mem1, tau_mem2, train_mem)
+    if model_name == "lstm":
+        model = MotionDetectionLSTM(*target_size, input_avg_pooling)
+    if model_name == "scnn":
+        model = MotionDetectionSNN(
+            *target_size, input_avg_pooling,  tau_mem1, tau_mem2, tau_mem3,
+            train_mem=train_mem, learn_threshold=train_v_th)
+    if model_name == "dual_scnn":
+        model = MotionDetectionDualSNN(
+            *target_size, input_avg_pooling,  tau_mem1, tau_mem2, tau_mem3,
+            train_mem=train_mem, learn_threshold=train_v_th)
+    model.to(device)
+    return model
+
+
+def leaky_filter(input, decay: float = 0.8):
+    output = [input[0]]
+    frame = input[0]
+    for ts in range(1, input.shape[0]):
+        frame = decay * frame + input[ts]
+        output.append(frame)
+    return torch.stack(output)
+
+
 def do_epoch(model, data_loader, optimizer, training: bool):
     model.train(training)
 
@@ -74,9 +105,9 @@ def do_epoch(model, data_loader, optimizer, training: bool):
     samples = 0
     pbar = tqdm(total=len(data_loader), unit="batch")
     for data, target in data_loader:
-
         data = data.to(device).to(dtype)
         target = target.to(device).to(dtype)
+        # target = target.to(device).to(int)
 
         if training:
             optimizer.zero_grad()
@@ -85,14 +116,24 @@ def do_epoch(model, data_loader, optimizer, training: bool):
         y = model(data)
         # sum-over-time
         y_sum = y.sum(1).reshape(-1)
+        # y_sum = y.sum(1)
+
+        print(model.z1.sum(1).mean())
+        print(model.z2.sum(1).mean())
+        print(model.z3.sum(1).mean())
 
         #  loss
-        loss = loss_fn(y_sum, target) + reg_strength * model.regularize()
+        loss = loss_fn(y_sum, target)
+        if hasattr(model, "regularize"):
+            reg_loss = reg_strength * model.regularize()
+        else:
+            reg_loss = torch.tensor(0.)
         acc = torch.sum((y_sum >= 0) == target)
+        # acc = torch.sum(torch.argmax(y_sum, axis=1) == target)
 
         # Gradient calculation + weight update
         if training:
-            loss.backward()
+            (loss + reg_loss).backward()
             optimizer.step()
 
         # Store loss history for future plotting
@@ -103,7 +144,9 @@ def do_epoch(model, data_loader, optimizer, training: bool):
         samples += data.shape[0]
 
         pbar.set_postfix(
-            loss=f"{loss/data.shape[0]:.4f}", acc=f"{acc/data.shape[0]:.4f}")
+            loss=f"{loss.detach().mean():.4f}",
+            reg_loss=f"{reg_loss.detach().mean():.4f}",
+            acc=f"{acc.detach()/data.shape[0]:.4f}")
         pbar.update()
 
     pbar.close()
@@ -115,6 +158,7 @@ def do_epoch(model, data_loader, optimizer, training: bool):
 
 
 def main():
+
     dataset = BinaryClassificationAstrositeDataset(
         dataset_path, split=target_list)
     print(len(dataset))
@@ -145,11 +189,13 @@ def main():
         torchvision.transforms.RandomVerticalFlip(p=0.5),
         torchvision.transforms.RandomRotation(30),
         torchvision.transforms.Lambda(lambda input: input.unsqueeze(1)),
+        torchvision.transforms.Lambda(lambda input: leaky_filter(input)),
     ])
     val_transforms = torchvision.transforms.Compose([
         torchvision.transforms.Lambda(lambda input: torch.tensor(input)),
         torchvision.transforms.Lambda(lambda input: input[:, 1]),
         torchvision.transforms.Lambda(lambda input: input.unsqueeze(1)),
+        torchvision.transforms.Lambda(lambda input: leaky_filter(input)),
     ])
     train_subset = torch.utils.data.Subset(dataset, indices=train_indices)
     train_set = TransformedSubset(
@@ -165,17 +211,14 @@ def main():
         val_set, shuffle=False, batch_size=batch_size, num_workers=1)
 
     # Model
-    model = MotionDetectionSNN(
-        *target_size, input_avg_pooling,  tau_mem1, tau_mem2, tau_mem3,
-        train_mem=train_mem)
-    model.to(device)
-
+    model = get_model()
+    
     # Optimizer
     optimizer = torch.optim.Adam(
         model.parameters(), lr=lr, betas=(0.9, 0.999))
 
     # Train and test
-    train_losses, val_losses, train_accs, val_accs = [], [], [], []
+    data = np.zeros((4, epochs))
     pbar = tqdm(total=epochs, unit="epoch")
     for epoch in range(epochs):
         # Train and evaluate
@@ -184,24 +227,20 @@ def main():
         val_loss, val_acc = do_epoch(
             model, val_loader, optimizer, False)
 
-        with open(base_path / data_path, "a") as file:
-            file.write(
-                f"{epoch};{train_loss.item()};{train_acc.item()};"
-                + f"{val_loss.item()};{val_acc.item()}\n")
+        data[0, epoch] = train_loss.item()
+        data[1, epoch] = train_acc.item()
+        data[2, epoch] = val_loss.item()
+        data[3, epoch] = val_acc.item()
 
         pbar.set_postfix(
             loss=f"{train_loss:.4f}", acc=f"{train_acc:.4f}",
             val_loss=f"{val_loss:.4f}", val_acc=f"{val_acc:.4f}")
         pbar.update()
 
-        # Keep
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
-        train_accs.append(train_acc)
-        val_accs.append(val_acc)
-
         # Save model
         torch.save(model.to("cpu").state_dict(), base_path / model_path)
+        with open(base_path / data_path, "wb") as file:
+            np.save(file, data)
         model.to(device)
     
     pbar.close()

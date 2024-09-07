@@ -135,11 +135,12 @@ class ClassificationAstrositeDataset(AstrositeDataset):
 class BinaryClassificationAstrositeDataset(AstrositeDataset):
     def __init__(
             self, recordings_path, split="all", min_sat_events=1000,
-            transform=None, perm_seed: int = 0):
+            transform=None, perm_seed: int = 0, dual: bool = False):
         super().__init__(
             recordings_path, split=split, min_sat_events=min_sat_events,
             transform=transform)
         # create permutation
+        self.dual = dual
         rng_state = torch.get_rng_state()
         torch.manual_seed(perm_seed)
         self.is_satellite = torch.rand(len(self)) >= 0.5
@@ -149,6 +150,7 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         return super().__len__() * 2
 
     def __getitem__(self, index):
+<<<<<<< HEAD
         sample = super().__getitem__(index//2)
         sat_events = sample['labelled_events']
         if index%2 == 0 :
@@ -156,6 +158,15 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         else :
             mask = sat_events["label"] < 0
             return sat_events[~mask], 0
+=======
+        sample = super().__getitem__(int(index // 2))
+        sat_events = sample['labelled_events']
+        if index%2 == 0 :
+            return sat_events, torch.tensor(1)
+        mask = sat_events["label"] < 0
+        return sat_events[~mask], torch.tensor(0)
+
+>>>>>>> d1897e3 (uncommited stuff from workshop)
     
 class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
