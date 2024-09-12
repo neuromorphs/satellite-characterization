@@ -150,15 +150,6 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         return super().__len__() * 2
 
     def __getitem__(self, index):
-<<<<<<< HEAD
-        sample = super().__getitem__(index//2)
-        sat_events = sample['labelled_events']
-        if index%2 == 0 :
-            return sat_events, 1
-        else :
-            mask = sat_events["label"] < 0
-            return sat_events[~mask], 0
-=======
         sample = super().__getitem__(int(index // 2))
         sat_events = sample['labelled_events']
         if index%2 == 0 :
@@ -166,7 +157,6 @@ class BinaryClassificationAstrositeDataset(AstrositeDataset):
         mask = sat_events["label"] < 0
         return sat_events[~mask], torch.tensor(0)
 
->>>>>>> d1897e3 (uncommited stuff from workshop)
     
 class TrackingAstrositeDataset(AstrositeDataset):
     def __getitem__(self, index):
